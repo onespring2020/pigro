@@ -4,32 +4,31 @@ defmodule Db2file do
   alias Db2file.Query
   import Ecto.Query, only: [from: 2]
   import Timex
-
+  @hours 4
   @moduledoc """
   Documentation for Db2file.
   """
-  # defp getMaxtime(date) do
-  #   query = ~s[select max(e.basetime) from esensordata e where e.baseymd = '#{date}']
-
-  #   case Ecto.Adapters.SQL.query(Db2file.Repo, query, []) do
-  #     {:ok, %{rows: rows}} -> rows |> Enum.at(0) |> List.to_string()
-  #     # {:ok, %{rows: [[basetime | _] | _]}} -> basetime
-  #     _ -> nil
-  #   end
-  # end
-
-  def getSensordataList(date) do
+  def getSensordataList(date, x) do
     # maxtime = Db2file.Query.getMaxtime(date)
 
     # query = ~s[select e.baseymd, e.basetime, e.sensorid, e.svalue from esensordata e
     #   where e.baseymd = '#{date}' and e.basetime = '#{maxtime}' and rownum < 4]
-    query = ~s[select e.baseymd, e.basetime, e.sensorid, e.svalue from esensordata e
-      where e.baseymd = '#{date}' ]
+    query =
+      ~s[select e.baseymd, e.basetime, e.sensorid, e.svalue from esensordata e
+      where e.baseymd = '#{date}'
+       AND SDATETIME >= TO_CHAR(TO_DATE('#{date}000000','YYYYMMDDHH24MISS') + INTERVAL '#{
+        x - @hours
+      }' HOUR, 'YYYYMMDDHH24MISS')
+       AND SDATETIME < TO_CHAR(TO_DATE('#{date}000000','YYYYMMDDHH24MISS') + INTERVAL '#{x}' HOUR, 'YYYYMMDDHH24MISS')
+      ]
 
     #        columns |> Enum.map(&String.to_atom(&1)) |> IO.inspect()
     case Ecto.Adapters.SQL.query(Db2file.Repo, query, []) do
+      {:ok, %{rows: []}} ->
+        {:empty, []}
+
       {:ok, %{rows: rows}} ->
-        rows |> make_maplistSensordata()
+        {:ok, rows |> make_maplistSensordata()}
 
       {:error, %{message: message}} ->
         message |> IO.inspect()
@@ -66,61 +65,54 @@ defmodule Db2file do
     end
   end
 
-  defp make_fileSensorData(date, path) do
-    {:ok, file} = File.open(path, [:write])
-    new_path = "../import/" <> date <> "/sensordata.json"
-
-    case checkDir(new_path) do
-      :ok -> :ok
-      _ -> nil
+  def make_fileSensorData(date, x, new_path) do
+    receive do
+      {:ok, msg} ->
+        IO.inspect(self())
+        IO.puts("exporting... : #{msg}")
     end
 
-    {:ok, file_new} = File.open(new_path, [:write, :binary])
+    # {:ok, file} = File.open(path, [:write])
 
     try do
-      map_list = getSensordataList(date)
+      case getSensordataList(date, x) do
+        {:ok, map_list} ->
+          {:ok, file_new} = File.open(new_path, [:write, :binary])
 
-      for item <- map_list do
-        IO.write(file, inspect(item) <> ",")
-        # IO.puts(inspect(item))
+          for item <- map_list do
+            tobe = %{
+              account: String.split(Map.get(item, "sensorid"), "|") |> Enum.at(0),
+              data: %{name: Map.get(item, "sensorid"), value: Map.get(item, "svalue")},
+              path: nil,
+              source: String.split(Map.get(item, "sensorid"), "|") |> Enum.at(1),
+              ts:
+                (String.slice(Map.get(item, "baseymd"), 2, 8) <> Map.get(item, "basetime") <> "Z")
+                |> to_utcTime()
+                |> DateTime.to_unix()
+            }
 
-        # IO.puts(Map.get(item, "sensorid"))
-        # date = %Data{name:}
-        data = %Data{name: Map.get(item, "sensorid"), value: Map.get(item, "svalue")}
+            if item == List.first(map_list) do
+              IO.write(file_new, "[ \n" <> Jason.encode!(tobe) <> " ,\n")
+            end
 
-        tobe = %ToBe{
-          account: String.split(Map.get(item, "sensorid"), "|") |> Enum.at(0),
-          data: data,
-          path: nil,
-          source: String.split(Map.get(item, "sensorid"), "|") |> Enum.at(1),
-          ts:
-            (String.slice(Map.get(item, "baseymd"), 2, 8) <> Map.get(item, "basetime") <> "Z")
-            |> to_utcTime()
-        }
+            if item != List.first(map_list) && item != List.last(map_list) do
+              IO.write(file_new, Jason.encode!(tobe) <> " ,\n")
+            end
 
-        # tobe_list = tobe_list ++ (tobe |> List.wrap())
-        # tobe_list |> inspect() |> IO.puts()
-        # tobe_list = tobe_list |> List.insert_at(-1, tobe)
-        if item == List.first(map_list) do
-          IO.write(file_new, "[ \n" <> Jason.encode!(tobe) <> " ,\n")
-        end
+            if item == List.last(map_list) do
+              IO.write(file_new, Jason.encode!(tobe) <> "\n]")
+            end
+          end
 
-        if item != List.first(map_list) && item != List.last(map_list) do
-          IO.write(file_new, Jason.encode!(tobe) <> " ,\n")
-        end
+          File.close(file_new)
 
-        if item == List.last(map_list) do
-          IO.write(file_new, Jason.encode!(tobe) <> "\n]")
-        end
+        {:empty, []} ->
+          IO.puts("조회 데이터없음")
       end
-
-      # tobe |> Jason.encode() |> inspect() |> IO.puts()
-      # tobe_list |> IO.inspect()
     rescue
       e in File.Error -> IO.puts("File Error:" <> e.reason)
     after
-      File.close(file)
-      File.close(file_new)
+      # File.close(file)
     end
   end
 
@@ -135,16 +127,35 @@ defmodule Db2file do
   end
 
   def exportData2File(date) do
-    path = "./export/" <> date <> "/sensordata.txt"
+    processList =
+      1..24
+      |> Enum.to_list()
+      |> Enum.filter(fn x -> rem(x, @hours) == 0 end)
+      |> Enum.with_index()
+      |> Enum.each(fn {x, i} ->
+        new_path = ~s[../_data/import/#{date}/sensordata_#{i}.json]
+        # IO.puts("path =>  #{new_path}" <> "\n")
 
-    case checkDir(path) do
-      :ok -> make_fileSensorData(date, path)
-      _ -> nil
-    end
+        # if checkDir(path) == :ok && checkDir(new_path) == :ok do
+        if checkDir(new_path) == :ok do
+          pid = spawn(Db2file, :make_fileSensorData, [date, x, new_path])
+          send(pid, {:ok, ~s[#{new_path}]})
+        end
+      end)
 
     # case make_fileSensorData(date, path) do
     #   [:ok] -> [:ok]
     #   _ -> nil
+    # end
+    IO.inspect(processList)
+
+    # for p <- processList do
+    #   if Process.alive?(p) do
+    #     IO.puts("???궁금")
+    #     Process.exit(p, :exit)
+    #   end
+
+    # send p, :stop
     # end
   end
 
