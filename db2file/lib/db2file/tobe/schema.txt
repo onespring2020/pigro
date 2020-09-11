@@ -1,0 +1,27 @@
+defmodule Db2file.Tobe.Data do
+  use Ecto.Schema
+  import Ecto.Changeset
+  alias Db2file.ToBe.{Sensordata, Data}
+
+  schema "data" do
+    field(:name, :string)
+    field(:value, :string)
+    belongs_to(:sensordata, Sensordata)
+  end
+end
+
+defmodule Db2file.Tobe.Sensordata do
+  use Ecto.Schema
+  import Ecto.Changeset
+  alias Db2file.ToBe.{Sensordata, Data}
+
+  schema "sensordata" do
+    field(:account, :string)
+    has_one(:data, Data)
+    field(:name, :string)
+    field(:value, :string)
+    field(:path, :string)
+
+    timestamps()
+  end
+end
