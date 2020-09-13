@@ -4,7 +4,9 @@ defmodule Db2file do
   alias Db2file.Query
   import Ecto.Query, only: [from: 2]
   import Timex
-  @hours 4
+  import MonthList
+  @hours 1
+  @sleep_interval 5
   @moduledoc """
   Documentation for Db2file.
   """
@@ -22,7 +24,6 @@ defmodule Db2file do
        AND SDATETIME < TO_CHAR(TO_DATE('#{date}000000','YYYYMMDDHH24MISS') + INTERVAL '#{x}' HOUR, 'YYYYMMDDHH24MISS')
       ]
 
-    #        columns |> Enum.map(&String.to_atom(&1)) |> IO.inspect()
     case Ecto.Adapters.SQL.query(Db2file.Repo, query, []) do
       {:ok, %{rows: []}} ->
         {:empty, []}
@@ -69,7 +70,10 @@ defmodule Db2file do
     receive do
       {:ok, msg} ->
         IO.inspect(self())
-        IO.puts("exporting... : #{msg}")
+        local_now = NaiveDateTime.from_erl!(:calendar.local_time())
+        IO.puts("[#{local_now}] exporting... : #{msg}")
+
+        # DateTime.utc_now() |> Timex.shift(months: 3) |> Timex.format("{YYYY}{0M}{0D}-{am}.{h24}:{m}:{s}")
     end
 
     # {:ok, file} = File.open(path, [:write])
@@ -77,37 +81,54 @@ defmodule Db2file do
     try do
       case getSensordataList(date, x) do
         {:ok, map_list} ->
+          json_list =
+            for item <- map_list do
+              tobe = %{
+                account: String.split(Map.get(item, "sensorid"), "|") |> Enum.at(0),
+                data: %{name: Map.get(item, "sensorid"), value: Map.get(item, "svalue")},
+                path: nil,
+                source: String.split(Map.get(item, "sensorid"), "|") |> Enum.at(1),
+                ts:
+                  (String.slice(Map.get(item, "baseymd"), 2, 8) <>
+                     Map.get(item, "basetime") <> "Z")
+                  |> to_utcTime()
+                  |> DateTime.to_unix()
+              }
+
+              tobe
+            end
+
+          # IO.inspect(json_list)
+          path = new_path |> Path.dirname()
+          filename = new_path |> Path.split() |> List.last()
+          total_cnt = json_list |> Enum.count()
+
+          new_path =
+            ~s[#{path}/#{Path.basename(filename, ".json")}_(#{total_cnt})#{Path.extname(filename)}]
+
           {:ok, file_new} = File.open(new_path, [:write, :binary])
 
-          for item <- map_list do
-            tobe = %{
-              account: String.split(Map.get(item, "sensorid"), "|") |> Enum.at(0),
-              data: %{name: Map.get(item, "sensorid"), value: Map.get(item, "svalue")},
-              path: nil,
-              source: String.split(Map.get(item, "sensorid"), "|") |> Enum.at(1),
-              ts:
-                (String.slice(Map.get(item, "baseymd"), 2, 8) <> Map.get(item, "basetime") <> "Z")
-                |> to_utcTime()
-                |> DateTime.to_unix()
-            }
-
-            if item == List.first(map_list) do
-              IO.write(file_new, "[ \n" <> Jason.encode!(tobe) <> " ,\n")
-            end
-
-            if item != List.first(map_list) && item != List.last(map_list) do
-              IO.write(file_new, Jason.encode!(tobe) <> " ,\n")
-            end
-
-            if item == List.last(map_list) do
-              IO.write(file_new, Jason.encode!(tobe) <> "\n]")
-            end
-          end
+          IO.write(
+            file_new,
+            # Jason.encode!(json_list)
+            Jason.encode!(json_list) |> to_string() |> String.replace("},{", "},\n{")
+          )
 
           File.close(file_new)
 
+          # self() |> IO.inspect()
+
+          IO.puts(
+            "[#{NaiveDateTime.from_erl!(:calendar.local_time())}] <#{new_path}> Exported Completed! count : #{
+              json_list |> Enum.count()
+            }"
+          )
+
+          :ok
+
         {:empty, []} ->
           IO.puts("조회 데이터없음")
+          :empty
       end
     rescue
       e in File.Error -> IO.puts("File Error:" <> e.reason)
@@ -127,27 +148,27 @@ defmodule Db2file do
   end
 
   def exportData2File(date) do
-    processList =
-      1..24
-      |> Enum.to_list()
-      |> Enum.filter(fn x -> rem(x, @hours) == 0 end)
-      |> Enum.with_index()
-      |> Enum.each(fn {x, i} ->
-        new_path = ~s[../_data/import/#{date}/sensordata_#{i}.json]
-        # IO.puts("path =>  #{new_path}" <> "\n")
+    # processList =
+    1..24
+    |> Enum.to_list()
+    |> Enum.filter(fn x -> rem(x, @hours) == 0 end)
+    |> Enum.with_index()
+    |> Enum.each(fn {x, i} ->
+      new_path = ~s[../_data/import/#{date}/sensordata_#{i + 1}.json]
+      # IO.puts("path =>  #{new_path}" <> "\n")
 
-        # if checkDir(path) == :ok && checkDir(new_path) == :ok do
-        if checkDir(new_path) == :ok do
-          pid = spawn(Db2file, :make_fileSensorData, [date, x, new_path])
-          send(pid, {:ok, ~s[#{new_path}]})
-        end
-      end)
+      # if checkDir(path) == :ok && checkDir(new_path) == :ok do
+      if checkDir(new_path) == :ok do
+        pid = spawn(Db2file, :make_fileSensorData, [date, x, new_path])
+        send(pid, {:ok, ~s[#{new_path}]})
+      end
+    end)
 
     # case make_fileSensorData(date, path) do
     #   [:ok] -> [:ok]
     #   _ -> nil
     # end
-    IO.inspect(processList)
+    # IO.inspect(processList)
 
     # for p <- processList do
     #   if Process.alive?(p) do
@@ -166,6 +187,43 @@ defmodule Db2file do
       {:error, :emfile} -> nil
       {:error, :enomem} -> nil
       {:error, reason} -> IO.puts(reason)
+    end
+  end
+
+  def batchExport_202004() do
+    first_date = ~D[2020-04-01]
+
+    for date <- getdatesList(first_date) do
+      IO.puts(
+        "[#{NaiveDateTime.from_erl!(:calendar.local_time())}] ____ exportData2File start === <#{
+          date
+        }>"
+      )
+
+      exportData2File(date)
+      # p_list = exportData2File(date)
+      # IO.inspect(p_list)
+      Process.sleep(1000 * 60 * @sleep_interval)
+
+      "[#{NaiveDateTime.from_erl!(:calendar.local_time())}] ____ exportData2File end === <#{date}>"
+    end
+  end
+
+  def batchExport_202006() do
+    # date_list = ["20200602", "20200604", "20200606", "20200608", "20200610", "20200612"]
+    date_list = ["20200514", "20200524", "20200525", "20200531"]
+
+    for date <- date_list do
+      IO.puts(
+        "[#{NaiveDateTime.from_erl!(:calendar.local_time())}] ____ exportData2File start === <#{
+          date
+        }>"
+      )
+
+      exportData2File(date)
+      Process.sleep(1000 * 60 * @sleep_interval)
+
+      "[#{NaiveDateTime.from_erl!(:calendar.local_time())}] ____ exportData2File end === <#{date}>"
     end
   end
 end

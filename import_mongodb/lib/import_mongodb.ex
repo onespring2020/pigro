@@ -117,9 +117,9 @@ defmodule ImportMongodb do
   #       username: "bhseong",
   #       password: "100hoon",
   #       auth_source: "admin"
-  #       # connect_timeout_ms: 500_000,
-  #       # pool_timeout: 500_000,
-  #       # timeout: 1500_000,
+  #       # connect_timeout_ms: 5000_000,
+  #       # pool_timeout: 5000_000,
+  #       # timeout: 15000_000,
   #       # pool: DBConnection.Poolboy,
   #       # pool_size: 50,
   #       # pool_overflow: 30

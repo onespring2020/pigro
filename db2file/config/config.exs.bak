@@ -8,4 +8,4 @@ config :db2file, Db2file.Repo,
   port: 6120,
   timeout: 2000_000,
   idle_interval: 1000_000,
-  pool_size: 48
+  pool_size: 30
