@@ -1,12 +1,11 @@
 defmodule Db2file do
   alias Db2file.Repo
-  alias Db2file.AsIs.Esensordata
-  alias Db2file.Query
   import Ecto.Query, only: [from: 2]
   import Timex
   import MonthList
+
   @hours 1
-  @sleep_interval 5
+  @sleep_interval 250
   @moduledoc """
   Documentation for Db2file.
   """
@@ -190,10 +189,14 @@ defmodule Db2file do
     end
   end
 
-  def batchExport_202004() do
-    first_date = ~D[2020-04-01]
+  def batchExport_2019_1Q() do
+    list_1 = getdatesList(~D[2019-01-01])
+    list_2 = getdatesList(~D[2019-02-01])
+    list_3 = getdatesList(~D[2019-03-01])
 
-    for date <- getdatesList(first_date) do
+    list_1Q = list_1 ++ list_2 ++ list_3
+
+    for date <- list_1Q do
       IO.puts(
         "[#{NaiveDateTime.from_erl!(:calendar.local_time())}] ____ exportData2File start === <#{
           date
@@ -203,25 +206,7 @@ defmodule Db2file do
       exportData2File(date)
       # p_list = exportData2File(date)
       # IO.inspect(p_list)
-      Process.sleep(1000 * 60 * @sleep_interval)
-
-      "[#{NaiveDateTime.from_erl!(:calendar.local_time())}] ____ exportData2File end === <#{date}>"
-    end
-  end
-
-  def batchExport_202006() do
-    # date_list = ["20200602", "20200604", "20200606", "20200608", "20200610", "20200612"]
-    date_list = ["20200514", "20200524", "20200525", "20200531"]
-
-    for date <- date_list do
-      IO.puts(
-        "[#{NaiveDateTime.from_erl!(:calendar.local_time())}] ____ exportData2File start === <#{
-          date
-        }>"
-      )
-
-      exportData2File(date)
-      Process.sleep(1000 * 60 * @sleep_interval)
+      Process.sleep(1000 * @sleep_interval)
 
       "[#{NaiveDateTime.from_erl!(:calendar.local_time())}] ____ exportData2File end === <#{date}>"
     end

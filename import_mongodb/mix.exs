@@ -14,7 +14,7 @@ defmodule ImportMongodb.MixProject do
   # Run "mix help compile.app" to learn about applications.
   def application do
     [
-      extra_applications: [:logger, :mongodb, :poolboy, :jason]
+      extra_applications: [:logger, :mongodb, :poolboy, :jason, :timex]
     ]
   end
 
@@ -23,7 +23,8 @@ defmodule ImportMongodb.MixProject do
     [
       {:mongodb, "~>0.5.1"},
       {:poolboy, "~>1.5.2"},
-      {:jason, "~>1.2.1"}
+      {:jason, "~>1.2.1"},
+      {:timex, "~>3.6.2"}
       # {:dep_from_hexpm, "~> 0.3.0"},
       # {:dep_from_git, git: "https://github.com/elixir-lang/my_dep.git", tag: "0.1.0"}
     ]

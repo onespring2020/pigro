@@ -38,4 +38,19 @@ defmodule ListUtil do
   # private methods
   defp _sum([], total), do: total
   defp _sum([head | tail], total), do: _sum(tail, head + total)
+
+  def getDatesListInMonth(first_date \\ ~D[2020-09-01]) do
+    days = Timex.days_in_month(first_date)
+
+    for x <- 0..(days - 1) do
+      case Timex.shift(first_date, days: x)
+           |> Timex.format("{YYYY}{0M}{0D}") do
+        {:ok, date} ->
+          date
+
+        _ ->
+          nil
+      end
+    end
+  end
 end

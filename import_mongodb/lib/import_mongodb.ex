@@ -2,7 +2,7 @@ defmodule ImportMongodb do
   import FileUtil
   import ListUtil
 
-  @max_num_insertMany 10000
+  @max_num_insertMany 50000
   def importSensordata(date) do
     path = "../_data/import/" <> date <> "/"
 
@@ -20,7 +20,7 @@ defmodule ImportMongodb do
               for filename <- files do
                 pid = spawn(ImportMongodb, :doImportSensordata, [path <> filename])
                 send(pid, {:ing, ~s[#{path}#{filename}]})
-                Process.sleep(1000)
+                Process.sleep(2000)
                 # send(pid, {self(), ~s[#{path}#{filename}]})
                 pid
               end
@@ -37,7 +37,7 @@ defmodule ImportMongodb do
     receive do
       {:ing, path} ->
         # IO.inspect(self())
-        IO.puts("importing... : #{path}")
+        IO.puts("[#{NaiveDateTime.from_erl!(:calendar.local_time())}] importing... : #{path}")
 
         # {sender, msg} ->
         #   IO.inspect(sender)
@@ -56,7 +56,13 @@ defmodule ImportMongodb do
 
         case insert_filedata(map_list, []) do
           {:done, total} ->
-            move_file(path, ~s[#{done_path}/ok/#{count}_#{total}_#{filename}])
+            if count === total do
+              move_file(path, ~s[#{done_path}/ok/#{filename}])
+
+              IO.puts(
+                "[#{NaiveDateTime.from_erl!(:calendar.local_time())}]------> done :#{filename} <-----------------"
+              )
+            end
 
           _ ->
             nil
@@ -68,8 +74,8 @@ defmodule ImportMongodb do
 
   defp insert_filedata([], cnt_list) do
     total_cnt = cnt_list |> ListUtil.sum()
-    IO.inspect(cnt_list)
-    IO.puts("----------> done : #{total_cnt} <-----------------")
+    # IO.inspect(cnt_list)
+
     {:done, total_cnt}
   end
 
@@ -117,9 +123,9 @@ defmodule ImportMongodb do
   #       username: "bhseong",
   #       password: "100hoon",
   #       auth_source: "admin"
-  #       # connect_timeout_ms: 5000_000,
-  #       # pool_timeout: 5000_000,
-  #       # timeout: 15000_000,
+  #       # connect_timeout_ms: 500_000,
+  #       # pool_timeout: 500_000,
+  #       # timeout: 1500_000,
   #       # pool: DBConnection.Poolboy,
   #       # pool_size: 50,
   #       # pool_overflow: 30
@@ -136,5 +142,22 @@ defmodule ImportMongodb do
       )
 
     pid
+  end
+
+  def batchImport_2019_11() do
+    list_1 = getDatesListInMonth(~D[2019-11-01])
+
+    for date <- list_1 do
+      IO.puts(
+        "[#{NaiveDateTime.from_erl!(:calendar.local_time())}] ---> importSensordata start <#{date}>"
+      )
+
+      importSensordata(date)
+      # p_list = importSensordata(date)
+      # IO.inspect(p_list)
+      Process.sleep(1000 * 10)
+
+      "[#{NaiveDateTime.from_erl!(:calendar.local_time())}] <--- importSensordata end <#{date}>"
+    end
   end
 end
